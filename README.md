@@ -36,6 +36,26 @@ READY    1 package (0 with binary wheels · 1 pure Python)
 NOT RIPE for CPython 3.15: 1 blocked upstream · 2 need a version bump
 ```
 
+### PyTorch, private mirrors and other indexes
+
+wheelripe reads PEP 691 (JSON) and PEP 503 (HTML) simple indexes — PyTorch's download.pytorch.org, or a private one on Artifactory, Nexus, devpi or GitLab — with the options pip takes:
+
+```bash
+wheelripe torch==2.13.0 numpy==2.5.4 --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+```
+
+```
+cli · 2 packages · index download.pytorch.org/whl/cpu + pypi.org
+
+BUMP     torch 2.13.0 → 2.14.0   no cp315 wheel in 2.13.0 for macos-arm64, windows-amd64 (ships cp310–cp315); 2.14.0 is the first release with one · ready on linux-x86_64
+READY    1 package (1 with binary wheels · 0 pure Python)
+```
+
+- `-i/--index-url` replaces PyPI (which is then never asked about your package names); `--extra-index-url` adds more, and files from all of them are pooled, as pip does.
+- `-i` / `--extra-index-url` lines in requirements files (including `-r` includes, with `${VAR}` expansion), the per-package registry in `uv.lock`, `poetry.lock`, `pylock.toml` and `Pipfile.lock`, and `PIP_INDEX_URL` / `PIP_EXTRA_INDEX_URL` / `UV_DEFAULT_INDEX` / `UV_INDEX` are honoured too. An explicit `--index-url` beats all of them.
+- Local versions work like pip: `torch==2.14.0` matches `2.14.0+cpu` on Linux and plain `2.14.0` on macOS; `torch==2.14.0+cpu` matches only the `+cpu` builds. CI checks this against pip on the live PyTorch index.
+- Credentials go in the URL (`https://USER:TOKEN@host/simple`) or `~/.netrc`. They are sent only to that host and never printed: every URL in output, warnings and errors is redacted.
+
 Exit code is 1 when anything needs a bump or is blocked (`--fail-on blocked|build|never` to change). Also: `-f json|markdown|github`, a [GitHub Action](https://blackman99.github.io/wheelripe/docs/usage.html#github-action) (`uses: Blackman99/wheelripe@v0.1.0`), and an [MCP server](https://blackman99.github.io/wheelripe/docs/usage.html#mcp) (`wheelripe mcp`) so coding agents check before they bump.
 
 Docs: https://blackman99.github.io/wheelripe/docs/ · [GOAL.md](GOAL.md) · [ROADMAP.md](ROADMAP.md) · MIT

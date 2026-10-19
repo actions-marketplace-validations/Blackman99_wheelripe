@@ -50,21 +50,47 @@
 <p><code>--fail-on</code> sets the exit-1 threshold: <code>bump</code> (default: anything you have to change), <code>blocked</code> (only upstream blockers — useful for a "tell me when" job), <code>build</code> (also sdist-only packages), <code>never</code> (report only).</p>
 <h2 id="pre">Pre-releases</h2>
 <p><code>--pre</code> lets the suggested bump be a pre-release. Early in a CPython cycle, many projects ship wheels in an rc first.</p>
-<h2 id="index">Index</h2>
-<p><code>--index</code>, env <code>WHEELRIPE_INDEX</code>, default <code>https://pypi.org/pypi</code>. Any server that implements the PyPI JSON API at <code>&lt;index&gt;/&lt;name&gt;/json</code> works. Simple-API-only indexes (PEP 691) are on the <a href="https://github.com/Blackman99/wheelripe/blob/main/ROADMAP.md">roadmap</a>.</p>
+<h2 id="index">Indexes</h2>
+<p>By default wheelripe asks the PyPI JSON API. For anything else — PyTorch's <code>download.pytorch.org</code>, Artifactory, Nexus, devpi, GitLab — give it the simple-API URL you would give pip. It asks for PEP 691 JSON (<code>Accept: application/vnd.pypi.simple.v1+json</code>) and reads PEP 503 HTML when that is what comes back.</p>
+<table><thead><tr><th>Where</th><th>Effect</th></tr></thead><tbody>
+<tr><td><code>-i / --index-url URL</code></td><td>Replaces PyPI for every package, including ones a lockfile pinned to another registry. PyPI is not asked about your package names unless you list it.</td></tr>
+<tr><td><code>--extra-index-url URL</code></td><td>Repeatable. Files from every index are pooled, as pip does, so a newer release on any of them counts.</td></tr>
+<tr><td>requirements files</td><td><code>-i</code>, <code>--index-url</code> and <code>--extra-index-url</code> lines, also inside <code>-r</code> includes, with pip's <code>${VAR}</code> expansion. The last <code>-i</code> wins, as in pip.</td></tr>
+<tr><td>lockfiles</td><td>Each package is checked on the registry it was locked from: <code>source = { registry = … }</code> in <code>uv.lock</code>, a <code>legacy</code> source in <code>poetry.lock</code>, <code>index</code> in <code>pylock.toml</code>, <code>_meta.sources</code> in <code>Pipfile.lock</code>.</td></tr>
+<tr><td>environment</td><td><code>PIP_INDEX_URL</code>, <code>UV_DEFAULT_INDEX</code> or <code>UV_INDEX_URL</code> for the main index; <code>PIP_EXTRA_INDEX_URL</code>, <code>UV_INDEX</code> and <code>UV_EXTRA_INDEX_URL</code> (space-separated) for extras.</td></tr>
+<tr><td><code>--index URL</code></td><td>A mirror of the PyPI <em>JSON</em> API (<code>&lt;index&gt;/&lt;name&gt;/json</code>), env <code>WHEELRIPE_INDEX</code>.</td></tr>
+</tbody></table>
+<p>Order: <code>--index-url</code> &gt; the lockfile's registry for that package &gt; <code>-i</code> in requirements files &gt; environment &gt; PyPI. Extra indexes from all of them are added together. <code>https://pypi.org/simple</code> anywhere in the list means PyPI's JSON API, which also gives wheelripe the upstream links for BLOCKED packages.</p>
+<h3 id="local">Local versions</h3>
+<p>Versions come from file names (<code>packaging.utils</code>), so <code>torch-2.14.0+cpu-cp315-cp315-win_amd64.whl</code> is version <code>2.14.0+cpu</code>. Matching follows PEP 440, like pip: <code>torch==2.14.0</code> accepts <code>2.14.0+cpu</code> on Linux and Windows and plain <code>2.14.0</code> on macOS; <code>torch==2.14.0+cpu</code> accepts only the <code>+cpu</code> builds, so on macOS it reports the first release that has one. CI compares these verdicts with pip on the live PyTorch index for 3.15 and 3.15t.</p>
+<h3 id="credentials">Credentials</h3>
+<p>Put them in the URL (<code>https://USER:TOKEN@host/simple</code>; percent-encode an <code>@</code> or <code>:</code> inside the token) or in <code>~/.netrc</code> (or the file named by <code>NETRC</code>). They are sent as HTTP Basic auth to that host only — including lockfile registries on the same host, which uv records without credentials — and are dropped on a redirect to another host. wheelripe never prints them: every URL in the report, warnings, annotations, MCP results and error messages is redacted.</p>
+<h3 id="index-errors">When an index says no</h3>
+<table><thead><tr><th>Answer</th><th>What wheelripe does</th></tr></thead><tbody>
+<tr><td>404 / 410</td><td>The package is not on that index. If no index has it, it is <code>MISSING</code> and the note says what each index answered. An index that has none of your packages gets a warning: is the URL the <code>/simple</code> root?</td></tr>
+<tr><td>401</td><td>As in pip, that index adds no files for the package; a warning says whether credentials were missing or rejected.</td></tr>
+<tr><td>403</td><td>The same, but a warning appears only when the index refused <em>every</em> package (download.pytorch.org answers 403 for projects it does not host).</td></tr>
+<tr><td>a web page, XML, the PyPI JSON API or website</td><td>Exit code 2, with the URL and a hint. A login page or web UI is not a simple index, and a verdict built from it would be wrong.</td></tr>
+<tr><td>5xx, timeouts</td><td>Three attempts, then exit code 2.</td></tr>
+</tbody></table>
+<p>Warnings go to stderr, into the JSON report (<code>warnings</code>), the Markdown summary and, with <code>--annotations</code>, a <code>::warning</code> annotation.</p>
 <h2 id="env">Environment variables</h2>
 <table><thead><tr><th>Variable</th><th>Effect</th></tr></thead><tbody>
 <tr><td><code>WHEELRIPE_PYTHON</code></td><td>Default for <code>--python</code>.</td></tr>
 <tr><td><code>WHEELRIPE_INDEX</code></td><td>Default for <code>--index</code>.</td></tr>
+<tr><td><code>PIP_INDEX_URL</code>, <code>UV_DEFAULT_INDEX</code>, <code>UV_INDEX_URL</code></td><td>Main simple index when neither <code>--index-url</code> nor a requirements-file <code>-i</code> is given.</td></tr>
+<tr><td><code>PIP_EXTRA_INDEX_URL</code>, <code>UV_INDEX</code>, <code>UV_EXTRA_INDEX_URL</code></td><td>Extra simple indexes (space-separated; <code>UV_INDEX</code> entries may be <code>name=url</code>).</td></tr>
+<tr><td><code>NETRC</code></td><td>netrc file with index credentials (default <code>~/.netrc</code>).</td></tr>
 <tr><td><code>NO_COLOR</code></td><td>Plain text output.</td></tr>
 <tr><td><code>HTTPS_PROXY</code></td><td>Standard proxy support.</td></tr>
+<tr><td><code>SSL_CERT_FILE</code></td><td>CA bundle for an index behind a private certificate authority.</td></tr>
 </tbody></table>
 <h2 id="inputs">What gets read</h2>
 <table><thead><tr><th>File</th><th>Notes</th></tr></thead><tbody>
-<tr><td><code>uv.lock</code></td><td>Registry packages only; git, path and URL sources are skipped.</td></tr>
+<tr><td><code>uv.lock</code></td><td>Registry packages only, each checked on its own registry; git, path and URL sources are skipped.</td></tr>
 <tr><td><code>pylock.toml</code></td><td>PEP 751 lockfiles.</td></tr>
 <tr><td><code>poetry.lock</code>, <code>Pipfile.lock</code></td><td>All locked packages.</td></tr>
-<tr><td><code>requirements*.txt</code></td><td>Follows <code>-r</code>, handles continuations and hashes; skips options, URLs and <code>-e</code>.</td></tr>
+<tr><td><code>requirements*.txt</code></td><td>Follows <code>-r</code>, handles continuations and hashes, honours <code>-i</code> / <code>--extra-index-url</code>; skips other options, URLs and <code>-e</code>.</td></tr>
 <tr><td><code>pyproject.toml</code></td><td><code>[project] dependencies</code>, optional dependencies and dependency groups.</td></tr>
 </tbody></table>
 <p>Environment markers are evaluated per target, so <code>pywin32; sys_platform == "win32"</code> is only checked for Windows and shows as skipped elsewhere.</p>

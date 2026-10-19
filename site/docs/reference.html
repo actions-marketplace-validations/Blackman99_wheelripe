@@ -47,7 +47,9 @@ wheelripe mcp</code></pre></div>
 <tr><td><code>--fail-on</code></td><td>bump</td><td><code>bump</code>, <code>blocked</code>, <code>build</code>, <code>never</code>.</td></tr>
 <tr><td><code>--show-ready</code></td><td></td><td>List ready packages one by one.</td></tr>
 <tr><td><code>--pre</code></td><td></td><td>Allow pre-releases as the suggested bump.</td></tr>
-<tr><td><code>--index URL</code></td><td>https://pypi.org/pypi</td><td>JSON API base.</td></tr>
+<tr><td><code>-i, --index-url URL</code></td><td>PyPI</td><td>Simple-API index (PEP 691/503) to use instead of PyPI. Credentials in the URL are never printed.</td></tr>
+<tr><td><code>--extra-index-url URL</code></td><td></td><td>One more simple-API index; repeatable; files are pooled.</td></tr>
+<tr><td><code>--index URL</code></td><td>https://pypi.org/pypi</td><td>PyPI JSON API base, for a mirror of it.</td></tr>
 <tr><td><code>--workers N</code></td><td>8</td><td>Parallel index requests.</td></tr>
 <tr><td><code>-o, --output FILE</code></td><td>stdout</td><td>Write the report to a file.</td></tr>
 <tr><td><code>--summary FILE</code></td><td></td><td>Append a Markdown summary (e.g. <code>$GITHUB_STEP_SUMMARY</code>).</td></tr>
@@ -59,7 +61,7 @@ wheelripe mcp</code></pre></div>
 <table><thead><tr><th>Code</th><th>Meaning</th></tr></thead><tbody>
 <tr><td>0</td><td>Nothing at or above the <code>--fail-on</code> level.</td></tr>
 <tr><td>1</td><td>Something is; the report says what.</td></tr>
-<tr><td>2</td><td>Usage error, unreadable input, or the index could not be reached.</td></tr>
+<tr><td>2</td><td>Usage error, unreadable input, an index that could not be reached, or one that answered with something that is not a simple index page.</td></tr>
 </tbody></table>
 <h2 id="statuses">Statuses</h2>
 <table><thead><tr><th>Status</th><th>Meaning</th></tr></thead><tbody>
@@ -72,6 +74,7 @@ wheelripe mcp</code></pre></div>
 <tr><td><code>missing</code></td><td>The package or version is not on the index.</td></tr>
 </tbody></table>
 <p>A package's overall status is its worst status across the platforms you asked for.</p>
+<p>Yanked files (PEP 592) are skipped, as pip skips them — except when an exact pin selects a yanked release: pip installs it then, with a warning, so wheelripe judges that release and marks the package <code>"yanked": true</code>.</p>
 <h2 id="platforms">Platform keys</h2>
 <table><thead><tr><th>Key</th><th>Wheel tags accepted</th></tr></thead><tbody>
 <tr><td><code>linux-x86_64</code>, <code>linux-aarch64</code></td><td><code>manylinux_X_Y_ARCH</code> with X.Y ≤ glibc floor, legacy <code>manylinux1/2010/2014</code>, <code>linux_ARCH</code></td></tr>
@@ -110,7 +113,7 @@ wheelripe mcp</code></pre></div>
     }
   ]
 }</code></pre></div>
-<p>Packages are sorted worst first. Fields that do not apply are omitted.</p>
+<p>Packages are sorted worst first. Fields that do not apply are omitted. Two top-level fields appear only when they have something to say: <code>indexes</code> (the indexes consulted, redacted, when anything besides PyPI was used, e.g. <code>["download.pytorch.org/whl/cpu", "pypi.org"]</code>) and <code>warnings</code> (index problems such as a 401, also printed to stderr).</p>
 <p class="next"><a href="faq.html">FAQ →</a></p>
 </main></div><footer class="foot"><p>wheelripe · MIT · <a href="https://github.com/Blackman99/wheelripe">GitHub</a> · <a href="https://github.com/Blackman99/wheelripe/issues">Issues</a></p></footer>
 </body>

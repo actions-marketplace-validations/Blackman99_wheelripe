@@ -45,7 +45,7 @@
 <h2 id="build">Is BUILD bad?</h2>
 <p>Not necessarily. Many pure-Python packages publish only an sdist; they build in seconds with no compiler. It counts as a failure only with <code>--fail-on build</code>.</p>
 <h2 id="pypi">Does it need PyPI?</h2>
-<p>It needs an index that speaks the PyPI JSON API. Artifactory, Nexus and devpi mirrors of PyPI usually do; point <code>--index</code> at them.</p>
+<p>No. PyPI's JSON API is the default, but any PEP 691 / PEP 503 simple index works with <code>--index-url</code> and <code>--extra-index-url</code>: PyTorch's <code>download.pytorch.org/whl/cpu</code> (or <code>/cu126</code> …), Artifactory, Nexus, devpi, GitLab. Index lines in your requirements file and the registries recorded in <code>uv.lock</code> are picked up automatically. See <a href="configuration.html#index">Indexes</a>.</p>
 <h2 id="lock">Does it change my lockfile?</h2>
 <p>No. It only reads. The suggested bump is printed; you apply it with your own tool (<code>uv lock --upgrade-package numpy</code>, etc.).</p>
 <h2 id="other">Other interpreters?</h2>

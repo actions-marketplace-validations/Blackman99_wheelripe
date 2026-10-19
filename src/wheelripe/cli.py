@@ -9,8 +9,8 @@ from typing import List, Optional
 
 from . import __version__, report
 from .check import FAILING, run
-from .inputs import InputError, collect
-from .pypi import PyPI
+from .index import make_fetcher, scrub
+from .inputs import IndexOptions, InputError, collect
 from .tags import DEFAULT_PLATFORMS, PLATFORM_KEYS, Python, explain_one, make_platform, parse_wheel_filename
 
 DEFAULT_PYTHON = "3.15"
@@ -61,7 +61,18 @@ def build_parser() -> argparse.ArgumentParser:
                     help="exit 1 when anything is at least this bad (default: bump)")
     ap.add_argument("--show-ready", action="store_true", help="list ready packages too (text format)")
     ap.add_argument("--pre", action="store_true", help="consider pre-releases for bumps")
-    ap.add_argument("--index", help="JSON API base, default https://pypi.org/pypi (env WHEELRIPE_INDEX)")
+    ap.add_argument("-i", "--index-url", metavar="URL",
+                    help="simple-API index (PEP 691/503) to use instead of PyPI, e.g. "
+                         "https://download.pytorch.org/whl/cpu. Credentials in the URL "
+                         "(https://USER:TOKEN@host/simple) go to that host only and are never printed. "
+                         "Overrides -i in requirements files, lockfile registries and "
+                         "PIP_INDEX_URL / UV_DEFAULT_INDEX / UV_INDEX_URL")
+    ap.add_argument("--extra-index-url", metavar="URL", action="append", default=[],
+                    help="one more simple-API index (repeatable); files from all indexes are pooled, as pip "
+                         "does. Also read from requirements files, PIP_EXTRA_INDEX_URL and UV_INDEX")
+    ap.add_argument("--index", metavar="URL",
+                    help="PyPI JSON API base for a mirror of pypi.org/pypi (default https://pypi.org/pypi, "
+                         "env WHEELRIPE_INDEX)")
     ap.add_argument("--workers", type=int, default=8, help="parallel index requests (default 8)")
     ap.add_argument("-o", "--output", help="write the report to a file instead of stdout")
     ap.add_argument("--summary", help="also append a Markdown summary to this file (e.g. $GITHUB_STEP_SUMMARY)")
@@ -110,21 +121,29 @@ def main(argv: Optional[List[str]] = None) -> int:
         argv = argv[1:]
     ap = build_parser()
     ns = ap.parse_args(argv)
+    if ns.index and ns.index_url:
+        print("wheelripe: use --index-url (a simple-API index) or --index (a PyPI JSON API mirror), not both",
+              file=sys.stderr)
+        return 2
+    opts = IndexOptions()
     try:
         target = Python.parse(ns.python)
         plats = _platforms(ns)
-        deps, sources = collect(ns.inputs)
+        deps, sources = collect(ns.inputs, opts)
+        fetch = make_fetcher(ns.index_url, ns.extra_index_url, opts, ns.index)
     except (ValueError, InputError, OSError) as e:
-        print(f"wheelripe: {e}", file=sys.stderr)
+        print(f"wheelripe: {scrub(e)}", file=sys.stderr)
         return 2
     if not deps:
         print("wheelripe: no dependencies found", file=sys.stderr)
         return 2
     try:
-        rep = run(deps, PyPI(ns.index), target, plats, sources, pre=ns.pre, workers=ns.workers)
+        rep = run(deps, fetch, target, plats, sources, pre=ns.pre, workers=ns.workers)
     except RuntimeError as e:
-        print(f"wheelripe: {e}", file=sys.stderr)
+        print(f"wheelripe: {scrub(e)}", file=sys.stderr)
         return 2
+    for w in rep.warnings:
+        print(f"wheelripe: warning: {w}", file=sys.stderr)
     if ns.annotations:
         sys.stdout.write(report.github(rep))
     if ns.json_out:

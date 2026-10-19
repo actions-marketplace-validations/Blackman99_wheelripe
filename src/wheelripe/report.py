@@ -25,11 +25,18 @@ def _use_color(stream) -> bool:
 def _ships(r: Result, python: str = "") -> str:
     if not r.ships:
         return ""
-    if python.endswith("t") and ("cp" + python[:-1].replace(".", "")) in r.ships:
-        return "has a GIL-only cp%s wheel, no free-threaded one" % python[:-1].replace(".", "")
+    nodot = python[:-1].replace(".", "")
+    if python.endswith("t") and f"cp{nodot}" in r.ships and f"cp{nodot}t" not in r.ships:
+        return f"has a GIL-only cp{nodot} wheel, no free-threaded one"
+
+    def span(tags):
+        return tags[0] if tags[0] == tags[-1] else f"{tags[0]}–{tags[-1]}"
+
     gil = [s for s in r.ships if not s.endswith("t")]
-    lo, hi = (gil[0], gil[-1]) if gil else (r.ships[0], r.ships[-1])
-    return f"ships {lo}" if lo == hi else f"ships {lo}–{hi}"
+    ft = [s for s in r.ships if s.endswith("t")]
+    if python.endswith("t") and ft:  # free-threaded target: show both builds, e.g. cp311–cp315 + cp314t–cp315t
+        return f"ships {span(gil)} + {span(ft)}" if gil else f"ships {span(ft)}"
+    return f"ships {span(gil or r.ships)}"
 
 
 def explain(r: Result, platforms: List[str], python: str = "") -> str:
@@ -40,7 +47,7 @@ def explain(r: Result, platforms: List[str], python: str = "") -> str:
         return r.note
     if r.status == READY:
         kinds = sorted({p.kind for p in r.platforms.values() if p.kind})
-        return "wheel: " + ", ".join(kinds) if kinds else "wheel available"
+        return ("wheel: " + ", ".join(kinds) if kinds else "wheel available") + _yanked(r)
     if r.status == SKIP:
         return "marker excludes every target"
     where = "any target platform" if len(bad) == len(platforms) else ", ".join(bad)
@@ -71,7 +78,11 @@ def explain(r: Result, platforms: List[str], python: str = "") -> str:
             msg += f" · {' / '.join(fixes)} fixes {', '.join(soft)}"
     if good and bad and len(good) < len(platforms):
         msg += f" · ready on {', '.join(good)}"
-    return msg
+    return msg + _yanked(r)
+
+
+def _yanked(r: Result) -> str:
+    return f" · {r.version} is yanked (pip installs it only because it is pinned, with a warning)" if r.yanked else ""
 
 
 def text(rep: Report, stream=None, show_ready: bool = False) -> str:
@@ -83,7 +94,8 @@ def text(rep: Report, stream=None, show_ready: bool = False) -> str:
 
     lines = [c("1", f"wheelripe · CPython {rep.python} · {' '.join(rep.platforms)}")]
     src = ", ".join(dict.fromkeys(rep.sources)) if rep.sources else "-"
-    lines.append(c("90", f"{src} · {len(rep.results)} package{'s' if len(rep.results) != 1 else ''}"))
+    via = f" · index {' + '.join(rep.indexes)}" if rep.indexes else ""
+    lines.append(c("90", f"{src} · {len(rep.results)} package{'s' if len(rep.results) != 1 else ''}{via}"))
     lines.append("")
     def ver(r: Result) -> str:
         return f"{r.version} → {r.fix}" if r.status == BUMP and r.fix else (r.version or "")
@@ -138,7 +150,11 @@ def markdown(rep: Report) -> str:
     out.append(("**Ripe.** Every dependency installs from a wheel" if ripe else
                 f"**Not ripe yet.** {n[BLOCKED] + n[EXCLUDED]} blocked upstream · {n[BUMP]} need a bump")
                + f" on {', '.join('`%s`' % p for p in rep.platforms)}.")
+    if rep.indexes:
+        out.append(f"Index: {' + '.join('`%s`' % i for i in rep.indexes)}.")
     out.append("")
+    for w in rep.warnings:
+        out += [f"> **Warning:** {w}", ""]
     rows = [r for r in rep.results if r.status not in (READY, SKIP)]
     if rows:
         out += ["| status | package | locked | fix | why |", "|---|---|---|---|---|"]
@@ -151,11 +167,18 @@ def markdown(rep: Report) -> str:
     return "\n".join(out) + "\n"
 
 
+def _gh(text: str) -> str:
+    """Escape a workflow-command message (GitHub drops what follows a raw newline or %)."""
+    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
 def github(rep: Report) -> str:
     out = []
     for r in rep.results:
         if r.status in (BLOCKED, EXCLUDED, MISSING):
-            out.append(f"::error title=wheelripe {LABEL[r.status]} {r.name}::{explain(r, rep.platforms, rep.python)}")
+            out.append(f"::error title=wheelripe {LABEL[r.status]} {r.name}::{_gh(explain(r, rep.platforms, rep.python))}")
         elif r.status in (BUMP, BUILD):
-            out.append(f"::warning title=wheelripe {LABEL[r.status]} {r.name}::{explain(r, rep.platforms, rep.python)}")
+            out.append(f"::warning title=wheelripe {LABEL[r.status]} {r.name}::{_gh(explain(r, rep.platforms, rep.python))}")
+    for w in rep.warnings:
+        out.append(f"::warning title=wheelripe index::{_gh(w)}")
     return "\n".join(out) + ("\n" if out else "")

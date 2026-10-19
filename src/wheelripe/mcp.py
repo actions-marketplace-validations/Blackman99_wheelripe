@@ -13,8 +13,8 @@ from typing import Any, Dict, Optional
 
 from . import __version__, report
 from .check import run
-from .inputs import InputError, collect, from_spec
-from .pypi import PyPI
+from .index import make_fetcher, scrub
+from .inputs import IndexOptions, InputError, collect, from_spec
 from .tags import DEFAULT_PLATFORMS, PLATFORM_KEYS, Python, explain_one, make_platform, parse_wheel_filename
 
 SUPPORTED = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -46,6 +46,13 @@ TOOLS = [
                 "platforms": _PLAT_SCHEMA,
                 "glibc": {"type": "string", "description": "Oldest glibc for linux-* targets, default 2.34"},
                 "macos": {"type": "string", "description": "Oldest macOS for macos-* targets, default 14"},
+                "index_url": {"type": "string",
+                              "description": "Simple-API index (PEP 691/503) to use instead of PyPI, e.g. "
+                                             "'https://download.pytorch.org/whl/cpu'. Like pip --index-url. "
+                                             "Default: -i from requirements files, PIP_INDEX_URL, then PyPI."},
+                "extra_index_urls": {"type": "array", "items": {"type": "string"},
+                                     "description": "More simple-API indexes; files from all indexes are pooled, "
+                                                    "like pip --extra-index-url."},
             },
             "additionalProperties": False,
         },
@@ -89,12 +96,18 @@ def call_tool(name: str, args: Dict[str, Any], fetch=None) -> Dict[str, Any]:
                 "structuredContent": {"filename": args["filename"], "python": str(target),
                                       "installs": res, "reasons": why}}
     if name == "check_python_upgrade":
+        opts = IndexOptions()
         if args.get("requirements"):
             deps = [from_spec(s, "mcp") for s in args["requirements"]]
             sources = ["requirements"]
         else:
-            deps, sources = collect([args.get("path") or os.getcwd()])
-        rep = run(deps, fetch or PyPI(), target, _plats(args), sources)
+            deps, sources = collect([args.get("path") or os.getcwd()], opts)
+        extra = args.get("extra_index_urls") or []
+        if isinstance(extra, str):
+            extra = extra.split()
+        if fetch is None:
+            fetch = make_fetcher(args.get("index_url"), extra, opts)
+        rep = run(deps, fetch, target, _plats(args), sources)
         return {"content": [{"type": "text", "text": report.markdown(rep)}],
                 "structuredContent": rep.to_dict()}
     raise KeyError(name)
@@ -127,11 +140,11 @@ def handle(msg: Dict[str, Any], fetch=None) -> Optional[Dict[str, Any]]:
                 return {"jsonrpc": "2.0", "id": mid,
                         "error": {"code": -32602, "message": f"unknown tool {params.get('name')!r}"}}
             except (ValueError, InputError, OSError, RuntimeError) as e:
-                result = {"content": [{"type": "text", "text": f"error: {e}"}], "isError": True}
+                result = {"content": [{"type": "text", "text": f"error: {scrub(e)}"}], "isError": True}
         else:
             return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": f"method not found: {method}"}}
     except Exception as e:  # pragma: no cover - defensive
-        return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": str(e)}}
+        return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": scrub(e)}}
     return {"jsonrpc": "2.0", "id": mid, "result": result}
 
 

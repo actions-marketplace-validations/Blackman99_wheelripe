@@ -12,8 +12,15 @@ Every item serves GOAL.md: which dependencies stop you moving to a new Python, a
 - MCP stdio server: `check_python_upgrade`, `explain_wheel`
 - CI cross-checks every verdict against pip's own resolver on the real PyPI, and installs on real CPython 3.15 / 3.15t
 
-## v0.2
-- PEP 691 / PEP 503 simple-API indexes (PyTorch, private indexes, `--extra-index-url` in requirements)
+## v0.2 — in progress
+- ✅ PEP 691 / PEP 503 simple-API indexes — shipped on main, not yet released
+  - `-i/--index-url` (replaces PyPI) and repeatable `--extra-index-url`, files pooled across indexes like pip
+  - read from requirements files (`-i`, `--extra-index-url`, through `-r`, `${VAR}` expansion), per-package registries in uv.lock / poetry.lock / pylock.toml / Pipfile.lock, and `PIP_INDEX_URL` / `PIP_EXTRA_INDEX_URL` / `UV_DEFAULT_INDEX` / `UV_INDEX_URL` / `UV_INDEX`
+  - JSON + HTML parsing (yanked, requires-python, URL-decoding, hash fragments), versions from filenames, PEP 440 local versions (`2.14.0+cpu`) matched like pip
+  - Basic auth from the URL or `~/.netrc`, same-host only, never printed; clear errors for 401/403/404, login pages and non-simple answers
+  - Action inputs `index-url` / `extra-index-url`; MCP `index_url` / `extra_index_urls`
+  - CI cross-checks the verdicts against pip on the live download.pytorch.org index (3.15, 3.15t)
+  - Not yet: `--find-links` / flat directories, `--no-index`, `file://` indexes, keyring credentials, uv's `first-index` strategy (wheelripe pools like pip; for uv.lock it uses each package's locked registry)
 - Upstream tracking: link the open "Python 3.15 wheels" issue/PR in each blocked package's repo
 - `wheelripe watch`: a scheduled-workflow recipe that comments on your tracking issue when a blocker clears
 - On-disk cache with ETag revalidation

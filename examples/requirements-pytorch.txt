@@ -1,0 +1,5 @@
+# CPU-only PyTorch, the way PyTorch's install page tells pip to get it.
+--index-url https://download.pytorch.org/whl/cpu
+--extra-index-url https://pypi.org/simple
+torch==2.14.0          # 2.14.0+cpu on Linux/Windows, plain 2.14.0 on macOS -> READY
+six==1.16.0            # not on the PyTorch index; comes from PyPI -> READY

@@ -45,4 +45,5 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 markers = ["live: hits the real PyPI and pip (set WHEELRIPE_LIVE=1)"]

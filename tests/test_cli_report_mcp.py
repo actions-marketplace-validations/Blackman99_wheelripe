@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from wheelripe import cli, mcp, report
+from wheelripe import cli, index, mcp, report
 from wheelripe.check import run
 from wheelripe.inputs import Dep
 from wheelripe.tags import Python, make_platform
@@ -13,7 +13,7 @@ from .conftest import fake_fetch
 
 @pytest.fixture(autouse=True)
 def offline(monkeypatch):
-    monkeypatch.setattr(cli, "PyPI", lambda index=None: fake_fetch)
+    monkeypatch.setattr(index, "PyPI", lambda index=None: fake_fetch)
 
 
 def test_cli_exit_codes(capsys):

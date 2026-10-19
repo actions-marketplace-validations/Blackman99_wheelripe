@@ -49,7 +49,7 @@ wheelripe --version</code></pre></div>
 <h2 id="ci">In CI</h2>
 <p>Nothing to install — use the <a href="usage.html#github-action">GitHub Action</a>. It creates its own virtualenv, so it never touches the Python your job uses.</p>
 <h2 id="network">Network</h2>
-<p>wheelripe makes one HTTPS request per package to the PyPI JSON API (<code>https://pypi.org/pypi/&lt;name&gt;/json</code>), eight in parallel by default. Behind a proxy, the usual <code>HTTPS_PROXY</code> variable is honoured. For a mirror that serves the same JSON API, see <a href="configuration.html#index">--index</a>.</p>
+<p>wheelripe makes one HTTPS request per package to the PyPI JSON API (<code>https://pypi.org/pypi/&lt;name&gt;/json</code>), eight in parallel by default. With <code>--index-url</code> / <code>--extra-index-url</code> it asks those simple-API indexes instead (one request per package per index), and PyPI is not contacted unless you list it. Behind a proxy, the usual <code>HTTPS_PROXY</code> variable is honoured; for a private CA, set <code>SSL_CERT_FILE</code>. See <a href="configuration.html#index">Indexes</a>.</p>
 <p class="next"><a href="usage.html">Usage →</a></p>
 </main></div><footer class="foot"><p>wheelripe · MIT · <a href="https://github.com/Blackman99/wheelripe">GitHub</a> · <a href="https://github.com/Blackman99/wheelripe/issues">Issues</a></p></footer>
 </body>

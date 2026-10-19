@@ -23,6 +23,12 @@ inputs:
   macos:
     description: 'Oldest macOS you support (macos-*). Default 14.'
     default: ''
+  index-url:
+    description: 'Simple-API index (PEP 691/503) to use instead of PyPI, e.g. https://download.pytorch.org/whl/cpu. For a private index, build https://USER:TOKEN@host/simple from repository secrets; credentials are sent to that host only and never printed. Default: -i in requirements files, PIP_INDEX_URL, then PyPI.'
+    default: ''
+  extra-index-url:
+    description: 'More simple-API indexes, separated by spaces or newlines; files from every index are pooled, like pip --extra-index-url.'
+    default: ''
 outputs:
   ripe:
     description: '"true" when every dependency installs from a wheel on the target.'
@@ -48,6 +54,8 @@ runs:
         WR_FAIL: ${{ inputs.fail-on }}
         WR_GLIBC: ${{ inputs.glibc }}
         WR_MACOS: ${{ inputs.macos }}
+        WR_INDEX_URL: ${{ inputs.index-url }}
+        WR_EXTRA_INDEX_URL: ${{ inputs.extra-index-url }}
       run: |
         set -u
         PY=$(command -v python3 || command -v python)
@@ -60,6 +68,10 @@ runs:
               --json-out "$report" --summary "$GITHUB_STEP_SUMMARY")
         [ -n "$WR_GLIBC" ] && args+=(--glibc "$WR_GLIBC")
         [ -n "$WR_MACOS" ] && args+=(--macos "$WR_MACOS")
+        [ -n "$WR_INDEX_URL" ] && args+=(--index-url "$WR_INDEX_URL")
+        set -f  # split on whitespace, but never glob a "?" in a URL
+        for u in $WR_EXTRA_INDEX_URL; do args+=(--extra-index-url "$u"); done
+        set +f
         rc=0
         # shellcheck disable=SC2086
         "$bin/wheelripe" $WR_PATH "${args[@]}" || rc=$?

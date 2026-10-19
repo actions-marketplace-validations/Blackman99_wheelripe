@@ -73,3 +73,14 @@ def test_glibc_floor_hint(fetch):
     assert "glibc >= 2.39" in r["newglibc"].platforms["linux-x86_64"].note
     _, r = go(fetch, Dep("newglibc", "1.0"), plats=[make_platform("linux-x86_64", glibc="2.39")])
     assert r["newglibc"].status == READY
+
+
+def test_yanked_pin_is_used_like_pip(fetch):
+    # pip: yanked files are skipped, unless an exact pin selects that release (PEP 592)
+    _, r = go(fetch, Dep("yankpin", "1.0"))
+    assert r["yankpin"].status == READY and r["yankpin"].yanked is True
+    _, r = go(fetch, Dep("yankpin", None, ">=1"))
+    assert r["yankpin"].version == "1.1" and r["yankpin"].status == BLOCKED  # 1.1 has no cp315
+    from wheelripe.report import explain
+    _, r = go(fetch, Dep("yankpin", "1.0"))
+    assert "1.0 is yanked" in explain(r["yankpin"], [p.key for p in PLATS], "3.15")

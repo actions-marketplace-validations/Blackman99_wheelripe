@@ -34,6 +34,20 @@ jobs:
       - run: python -m pip install -U pip && python -m pip install -e .
       - run: python scripts/crosscheck_pip.py ${{ matrix.target }}
 
+  simple-index:
+    name: agrees with pip on a simple index (download.pytorch.org, ${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ["3.15", "3.15t"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: {python-version: "3.13"}
+      - run: python -m pip install -U pip && python -m pip install -e .
+      - run: python scripts/crosscheck_index.py ${{ matrix.target }}
+
   real-interpreter:
     name: real install on CPython ${{ matrix.python }}
     runs-on: ubuntu-latest
@@ -68,10 +82,18 @@ jobs:
         uses: ./
         with:
           path: examples/requirements-blocked.txt
+      - name: simple index via inputs
+        id: torch
+        uses: ./
+        with:
+          path: torch==2.14.0 six==1.16.0
+          index-url: https://download.pytorch.org/whl/cpu
+          extra-index-url: https://pypi.org/simple
       - name: assert outputs
         shell: bash
         run: |
-          echo "ripe=${{ steps.ripe.outputs.ripe }} blocked-outcome=${{ steps.blocked.outcome }} bump=${{ steps.blocked.outputs.bump }} blocked=${{ steps.blocked.outputs.blocked }}"
+          echo "ripe=${{ steps.ripe.outputs.ripe }} blocked-outcome=${{ steps.blocked.outcome }} bump=${{ steps.blocked.outputs.bump }} blocked=${{ steps.blocked.outputs.blocked }} torch=${{ steps.torch.outputs.ripe }}"
+          test "${{ steps.torch.outputs.ripe }}" = "true"
           test "${{ steps.ripe.outputs.ripe }}" = "true"
           test "${{ steps.blocked.outcome }}" = "failure"
           test "${{ steps.blocked.outputs.ripe }}" = "false"

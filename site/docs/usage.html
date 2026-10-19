@@ -48,6 +48,23 @@ wheelripe numpy==1.26.4 pydantic-core==2.41.5 orjson
 <span class="c"># older glibc in production</span>
 wheelripe requirements.txt --glibc 2.28</code></pre></div>
 <p>Unpinned specs (<code>orjson</code>, <code>numpy&gt;=1.26</code>) are checked at the newest release matching the specifier. Pinned ones (<code>==</code>, or anything from a lockfile) are checked at exactly that version, and if it has no wheel wheelripe looks forward for the first newer release that does.</p>
+<h3 id="indexes">PyTorch and private indexes</h3>
+<p>Point wheelripe at any PEP 691 (JSON) or PEP 503 (HTML) simple index with the options pip takes. Files from every index are pooled, like pip, and versions come from the file names, so local builds such as <code>2.14.0+cpu</code> match the way pip matches them.</p>
+<div class="rind"><pre><code>$ wheelripe torch==2.13.0 numpy==2.5.4 --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+cli · 2 packages · index download.pytorch.org/whl/cpu + pypi.org
+
+BUMP     torch 2.13.0 → 2.14.0   no cp315 wheel in 2.13.0 for macos-arm64, windows-amd64 (ships cp310–cp315); 2.14.0 is the first release with one · ready on linux-x86_64
+READY    1 package (1 with binary wheels · 0 pure Python)
+
+<span class="c"># a requirements file that already says where to look needs no flags</span>
+wheelripe requirements.txt        # -i / --extra-index-url lines, also inside -r includes
+
+<span class="c"># uv.lock: each package is checked on the registry uv locked it from</span>
+wheelripe uv.lock -p 3.15t
+
+<span class="c"># a private index: credentials go to that host only and are never printed</span>
+wheelripe -i &quot;https://$INDEX_USER:$INDEX_TOKEN@pypi.corp.example/simple&quot; requirements.txt</code></pre></div>
+<p>Precedence, credentials and what happens when an index refuses are on the <a href="configuration.html#index">configuration</a> page.</p>
 <h3 id="wheel">Explain a single wheel</h3>
 <div class="rind"><pre><code>$ wheelripe wheel orjson-3.13.0-cp315-cp315-manylinux_2_39_x86_64.whl -p 3.15t
 orjson-3.13.0-cp315-cp315-manylinux_2_39_x86_64.whl on CPython 3.15t
@@ -86,7 +103,15 @@ jobs:
 <tr><td><code>fail-on</code></td><td><code>bump</code></td><td><code>bump</code>, <code>blocked</code>, <code>build</code> or <code>never</code>.</td></tr>
 <tr><td><code>glibc</code></td><td>2.34</td><td>Oldest glibc you deploy on.</td></tr>
 <tr><td><code>macos</code></td><td>14</td><td>Oldest macOS you support.</td></tr>
+<tr><td><code>index-url</code></td><td></td><td>Simple-API index to use instead of PyPI, e.g. <code>https://download.pytorch.org/whl/cpu</code>.</td></tr>
+<tr><td><code>extra-index-url</code></td><td></td><td>More simple-API indexes, separated by spaces or newlines; pooled with the first.</td></tr>
 </tbody></table>
+<p>For a private index, build the URL from repository secrets. GitHub masks them in the log, and wheelripe never prints credentials anyway:</p>
+<div class="rind"><pre><code>- uses: Blackman99/wheelripe@v0.1.0
+  with:
+    path: requirements.txt
+    index-url: https://${{ secrets.INDEX_USER }}:${{ secrets.INDEX_TOKEN }}@pypi.corp.example/simple
+    extra-index-url: https://pypi.org/simple</code></pre></div>
 <table>
 <thead><tr><th>Output</th><th>Meaning</th></tr></thead>
 <tbody>
@@ -110,7 +135,7 @@ jobs:
 <table>
 <thead><tr><th>Tool</th><th>Arguments</th><th>Returns</th></tr></thead>
 <tbody>
-<tr><td><code>check_python_upgrade</code></td><td><code>path</code> or <code>requirements[]</code>, <code>python</code>, <code>platforms[]</code>, <code>glibc</code>, <code>macos</code></td><td>Markdown table + the full <a href="reference.html#json">JSON report</a> as structured content.</td></tr>
+<tr><td><code>check_python_upgrade</code></td><td><code>path</code> or <code>requirements[]</code>, <code>python</code>, <code>platforms[]</code>, <code>glibc</code>, <code>macos</code>, <code>index_url</code>, <code>extra_index_urls[]</code></td><td>Markdown table + the full <a href="reference.html#json">JSON report</a> as structured content.</td></tr>
 <tr><td><code>explain_wheel</code></td><td><code>filename</code>, <code>python</code>, <code>platforms[]</code></td><td>Installs yes/no per platform, with the reason.</td></tr>
 </tbody></table>
 <p>Both tools are annotated <code>readOnlyHint</code>; they only read local files and the package index.</p>

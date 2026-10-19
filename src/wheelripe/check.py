@@ -54,6 +54,7 @@ class Result:
     upstream: Optional[str] = None
     origin: str = ""
     note: str = ""
+    yanked: Optional[bool] = None  # True when an exact pin selects a yanked release
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -100,14 +101,14 @@ def _wheel_for(files: list, target: Python, plat: Platform) -> Optional[tuple]:
     return best
 
 
-def _floor_hint(releases: dict, versions: list, target: Python, plat: Platform) -> str:
+def _floor_hint(rel: "_Releases", versions: list, target: Python, plat: Platform) -> str:
     """If wheels exist but only for a newer glibc/musl/macOS than the floor, say which."""
     if plat.os not in ("linux", "musllinux", "macos"):
         return ""
     relaxed = replace(plat, libc=(99, 99))
     need = None
     for v in reversed(versions[-5:]):
-        for f in _files(releases[_version_key(releases, v)]):
+        for f in rel.files(v):
             tags = parse_wheel_filename(f.get("filename", ""))
             if not tags or not compatible(tags, target, relaxed):
                 continue
@@ -140,52 +141,69 @@ def _upstream(info: dict) -> Optional[str]:
     return None
 
 
-def _sorted_versions(releases: dict, pre: bool) -> List[Version]:
-    out = []
-    for v, files in releases.items():
-        try:
-            pv = Version(v)
-        except InvalidVersion:
-            continue
-        if (pv.is_prerelease or pv.is_devrelease) and not pre:
-            continue
-        if not _files(files):
-            continue
-        out.append(pv)
-    return sorted(out)
+class _Releases:
+    """Release files keyed by version, with PEP 440 ``==`` semantics for local versions.
 
+    PyTorch-style indexes publish ``2.14.0+cpu`` for Linux/Windows and plain ``2.14.0`` for
+    macOS. ``torch==2.14.0`` matches both (a public version ignores local labels), while
+    ``torch==2.14.0+cpu`` matches only the ``+cpu`` files, so that is what pip installs.
+    PyPI never has local versions, so there every group is exactly one release.
+    """
 
-def _version_key(releases: dict, v: Version) -> str:
-    s = str(v)
-    if s in releases:
-        return s
-    for k in releases:
-        try:
-            if Version(k) == v:
-                return k
-        except InvalidVersion:
-            pass
-    return s
+    def __init__(self, releases: dict):
+        self.exact: Dict[Version, list] = {}
+        self.public: Dict[Version, list] = {}
+        for k, files in releases.items():
+            try:
+                v = Version(k)
+            except InvalidVersion:
+                continue
+            self.exact.setdefault(v, []).extend(files)
+            self.public.setdefault(Version(v.public), []).extend(files)
+
+    def has(self, v: Version) -> bool:
+        return v in self.exact if v.local else Version(v.public) in self.public
+
+    def files(self, v: Version, yanked: bool = False) -> list:
+        """Files pip could pick for ``==v``; yanked ones only when asked for."""
+        files = self.exact.get(v, []) if v.local else self.public.get(Version(v.public), [])
+        return list(files) if yanked else _files(files)
+
+    def versions(self, pre: bool) -> List[Version]:
+        """Public versions with at least one non-yanked file, oldest first."""
+        out = [v for v, files in self.public.items()
+               if (pre or not (v.is_prerelease or v.is_devrelease)) and _files(files)]
+        return sorted(out)
 
 
 def classify(dep: Dep, project: Optional[dict], target: Python, plats: Sequence[Platform],
              pre: bool = False) -> Result:
-    if project is None:
-        return Result(dep.name, dep.version, dep.version is not None, MISSING,
-                      note="not found on the package index", origin=dep.origin)
+    if project is None or project.get("missing"):
+        note = (project or {}).get("missing") or "not found on the package index"
+        return Result(dep.name, dep.version, dep.version is not None, MISSING, note=note, origin=dep.origin)
     info = project.get("info", {})
-    releases = project.get("releases", {}) or {}
+    rel = _Releases(project.get("releases", {}) or {})
     name = info.get("name") or dep.name
-    versions = _sorted_versions(releases, pre or bool(dep.version and Version(dep.version).is_prerelease))
+    pinned = dep.version is not None
+    pin: Optional[Version] = None
+    if pinned:
+        try:
+            pin = Version(dep.version)
+        except InvalidVersion:
+            return Result(name, dep.version, True, MISSING, origin=dep.origin,
+                          note=f"{dep.version!r} is not a valid version (PEP 440)")
+    versions = rel.versions(pre or bool(pin and pin.is_prerelease))
     latest = str(versions[-1]) if versions else info.get("version")
 
-    pinned = dep.version is not None
     if pinned:
         version = dep.version
-        rel_key = _version_key(releases, Version(version)) if versions or releases else version
-        if rel_key not in releases:
-            return Result(name, version, True, MISSING, latest=latest,
-                          note=f"version {version} not found on the index", origin=dep.origin)
+        sel = pin
+        if not rel.has(pin):
+            note = f"version {version} not found on the index"
+            if pin.local:
+                note += (f" (+{pin.local} builds come from a non-PyPI index such as "
+                         "download.pytorch.org; pass it with --index-url or --extra-index-url)")
+            return Result(name, version, True, MISSING, latest=latest, note=note, origin=dep.origin)
     else:
         try:
             spec = SpecifierSet(dep.specifier or "")
@@ -196,17 +214,21 @@ def classify(dep: Dep, project: Optional[dict], target: Python, plats: Sequence[
             return Result(name, None, False, MISSING, latest=latest,
                           note=f"no release matches {dep.specifier!r}", origin=dep.origin)
         # pip would pick the newest release whose requires-python allows the target
-        allowed = [v for v in ok if _rp_ok(_requires_python(_files(releases[_version_key(releases, v)])), target)]
-        version = str((allowed or ok)[-1])
-        rel_key = _version_key(releases, Version(version))
+        allowed = [v for v in ok if _rp_ok(_requires_python(rel.files(v)), target)]
+        sel = (allowed or ok)[-1]
+        version = str(sel)
 
-    files = _files(releases.get(rel_key, []))
+    files = rel.files(sel)
+    yanked = None
+    if pinned and not files and rel.files(sel, yanked=True):
+        # PEP 592: pip skips yanked files unless an exact pin leaves nothing else (it then warns)
+        files, yanked = rel.files(sel, yanked=True), True
     rp = _requires_python(files)
     all_tags = [t for t in (parse_wheel_filename(f["filename"]) for f in files) if t]
     ships = binary_pythons(all_tags)
     has_wheels = bool(all_tags)
     res = Result(name, version, pinned, READY, latest=latest, ships=ships, requires_python=rp,
-                 upstream=_upstream(info), origin=dep.origin)
+                 upstream=_upstream(info), origin=dep.origin, yanked=yanked)
 
     marker = None
     if dep.marker:
@@ -215,7 +237,8 @@ def classify(dep: Dep, project: Optional[dict], target: Python, plats: Sequence[
         except InvalidMarker:
             marker = None
 
-    newer = [v for v in versions if v > Version(version)]
+    # later public versions (a +cpu build and its plain macOS twin count as one release)
+    newer = [v for v in versions if v > sel]
     for plat in plats:
         if marker is not None:
             try:
@@ -237,14 +260,14 @@ def classify(dep: Dep, project: Optional[dict], target: Python, plats: Sequence[
                 pr = PlatformResult(BLOCKED, note="no wheel for this Python/platform")
         # look for the first newer release that installs here from a wheel
         for v in newer:
-            vf = _files(releases[_version_key(releases, v)])
+            vf = rel.files(v)
             if not _rp_ok(_requires_python(vf), target):
                 continue
             if _wheel_for(vf, target, plat):
                 pr.fix = str(v)
                 break
         if not pr.fix and pr.status == BLOCKED:
-            hint = _floor_hint(releases, versions, target, plat)
+            hint = _floor_hint(rel, versions, target, plat)
             if hint:
                 pr.note = hint
         if pr.fix and pinned:
@@ -273,6 +296,8 @@ class Report:
     platforms: List[str]
     sources: List[str]
     results: List[Result]
+    indexes: List[str] = field(default_factory=list)  # redacted; empty = PyPI only
+    warnings: List[str] = field(default_factory=list)
 
     def counts(self) -> Dict[str, int]:
         c = {s: 0 for s in ORDER}
@@ -291,17 +316,31 @@ class Report:
             "python": self.python,
             "platforms": self.platforms,
             "sources": self.sources,
+            **({"indexes": self.indexes} if self.indexes else {}),
             "ripe": not self.failing("bump"),
             "summary": {k: v for k, v in c.items()},
             "packages": [r.to_dict() for r in self.results],
+            **({"warnings": self.warnings} if self.warnings else {}),
         }
 
 
 def run(deps: Sequence[Dep], fetch, target: Python, plats: Sequence[Platform], sources=(),
         pre: bool = False, workers: int = 8) -> Report:
-    names = sorted({canonicalize_name(d.name) for d in deps})
+    """``fetch(name)`` returns a project dict or None; deps that carry the registry their lockfile
+    names (``Dep.index``) are fetched as ``fetch(name, index)``."""
+    keys = sorted({(canonicalize_name(d.name), d.index or "") for d in deps})
+
+    def get(key):
+        name, index = key
+        return fetch(name, index) if index else fetch(name)
+
     with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
-        projects = dict(zip(names, ex.map(fetch, names)))
-    results = [classify(d, projects.get(canonicalize_name(d.name)), target, plats, pre) for d in deps]
+        projects = dict(zip(keys, ex.map(get, keys)))
+    results = [classify(d, projects.get((canonicalize_name(d.name), d.index or "")), target, plats, pre)
+               for d in deps]
     results.sort(key=lambda r: (-ORDER.index(r.status), r.name.lower()))
-    return Report(str(target), [p.key for p in plats], list(sources), results)
+    rep = Report(str(target), [p.key for p in plats], list(sources), results)
+    if hasattr(fetch, "describe"):
+        rep.indexes = list(fetch.describe())
+        rep.warnings = list(fetch.warnings())
+    return rep
